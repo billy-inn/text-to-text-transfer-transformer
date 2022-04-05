@@ -123,23 +123,24 @@ def main(_):
   def _example_to_string(ex):
     key_to_string = {}
     for k in keys:
-      if k in ex:
-        v = ex[k].numpy().tolist()
-        if (FLAGS.detokenize
-            and v and isinstance(v, list)
-            and isinstance(v[0], int)):
-          s = task_or_mixture.output_features[k].vocabulary.decode(
-              [abs(i) for i in v])
-          if (FLAGS.apply_postprocess_fn and k == "targets"
-              and hasattr(task_or_mixture, "postprocess_fn")):
-            s = task_or_mixture.postprocess_fn(s)
-        elif isinstance(v, bytes):
-          s = v.decode("utf-8")
-        else:
-          s = " ".join(str(i) for i in v)
-        key_to_string[k] = s
+      if k not in ex:
+        continue
+      value = ex[k]
+      if FLAGS.detokenize:
+        try:
+          value = task_or_mixture.output_features[k].vocabulary.decode_tf(value)
+        except RuntimeError as err:
+          # Decoding will fail if there is some issue with the input.
+          value = f"Error {err} while decoding {value}"
+        if (FLAGS.apply_postprocess_fn and k == "targets" and
+            hasattr(task_or_mixture, "postprocess_fn")):
+          value = task_or_mixture.postprocess_fn(value)
+      # String Joining
+      if tf.is_numeric_tensor(value):
+        value = tf.strings.reduce_join(tf.as_string(value), separator=", ")
       else:
-        key_to_string[k] = ""
+        value = tf.strings.join(value, separator="\n")
+      key_to_string[k] = value.numpy().decode("utf-8")
     return FLAGS.format_string.format(**key_to_string)
 
   for ex in ds:
